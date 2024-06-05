@@ -10,14 +10,16 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <BlynkSimpleEsp32.h>
+#include <Preferences.h>
 
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 Adafruit_MPU6050 mpu;
 Adafruit_AHTX0 aht;
+Preferences preferences;
 
 float bottle_height = 25.0;
-float tof_offset;
-float temp_offset = 1.0;
+float tof_offset = 22;
+float temp_offset = 2.0;
 float upright_z_reference = 9.8;  // Default value assuming bottle is upright
 
 // Your WiFi credentials.
@@ -32,8 +34,7 @@ int waterLevel;
 String name;
 int age, height, weight;
 
-int temperatureThreshold = 32, humidityThreshold = 80, waterBalanceThreshold = 100;
-
+int temperatureThreshold = 35, humidityThreshold = 80, waterBalanceThreshold = 100;
 int reminderIntervalMin = 1, dataRefreshRateSec = 5;
 
 unsigned long lastReminderTime = 0;     // Variable to store the last reminder time
@@ -73,42 +74,80 @@ BLYNK_WRITE(V10) {
   upright_z_reference = param.asFloat();
   Serial.print("Retrieved calibrated upright Z reference from Blynk: ");
   Serial.println(upright_z_reference);
+  saveConfig();
 }
 
 BLYNK_WRITE(V12) {
   tof_offset = param.asFloat();
   Serial.print("ToF Offset changed to ");
   Serial.println(tof_offset);
+  saveConfig();
 }
 
 BLYNK_WRITE(V15) {
   temperatureThreshold = param.asInt();
   Serial.print("Temperature Threshold changed to ");
   Serial.println(temperatureThreshold);
+  saveConfig();
 }
 
 BLYNK_WRITE(V16) {
   humidityThreshold = param.asInt();
   Serial.print("Humidity Threshold changed to ");
   Serial.println(humidityThreshold);
+  saveConfig();
 }
 
 BLYNK_WRITE(V17) {
   waterBalanceThreshold = param.asInt();
   Serial.print("Water Balance Threshold changed to ");
   Serial.println(waterBalanceThreshold);
+  saveConfig();
 }
 
 BLYNK_WRITE(V18) {
   reminderIntervalMin = param.asInt();
   Serial.print("Reminder Interval Min Threshold changed to ");
   Serial.println(reminderIntervalMin);
+  saveConfig();
 }
 
 BLYNK_WRITE(V19) {
   dataRefreshRateSec = param.asInt();
   Serial.print("Data Refresh Rate Sec Threshold changed to ");
   Serial.println(dataRefreshRateSec);
+  saveConfig();
+}
+
+void saveConfig() {
+  preferences.begin("config", false);  // Open storage in RW mode
+
+  preferences.putFloat("tof_offset", tof_offset);
+  preferences.putFloat("upright_z_ref", upright_z_reference);
+  preferences.putInt("temp_thresh", temperatureThreshold);
+  preferences.putInt("humidity_thresh", humidityThreshold);
+  preferences.putInt("water_thresh", waterBalanceThreshold);
+  preferences.putInt("reminder_interval", reminderIntervalMin);
+  preferences.putInt("data_refresh", dataRefreshRateSec);
+  delay(50);
+
+  preferences.end();  // Close storage
+  Serial.println("Configuration saved to NVS");
+}
+
+void loadConfig() {
+  preferences.begin("config", true);  // Open storage in RO mode
+
+  tof_offset = preferences.getFloat("tof_offset", tof_offset);
+  upright_z_reference = preferences.getFloat("upright_z_ref", upright_z_reference);
+  temperatureThreshold = preferences.getInt("temp_thresh", temperatureThreshold);
+  humidityThreshold = preferences.getInt("humidity_thresh", humidityThreshold);
+  waterBalanceThreshold = preferences.getInt("water_thresh", waterBalanceThreshold);
+  reminderIntervalMin = preferences.getInt("reminder_interval", reminderIntervalMin);
+  dataRefreshRateSec = preferences.getInt("data_refresh", dataRefreshRateSec);
+
+  preferences.end();  // Close storage
+  Serial.println("Configuration loaded from NVS");
 }
 
 void calibrateBottle() {
@@ -121,6 +160,7 @@ void calibrateBottle() {
   Serial.println(upright_z_reference);
 
   Blynk.virtualWrite(V10, upright_z_reference);
+  saveConfig();
 }
 
 void getAllReading() {
@@ -177,16 +217,18 @@ void getAllReading() {
   Serial.print("Temperature: ");
   temperatureValue = (temperature.temperature - temp_offset);
   Serial.print(temperatureValue);
-  Serial.print(" C ");
+  Serial.print(" °C ");
   Serial.print("Humidity: ");
   humidityValue = humidity.relative_humidity;
   Serial.print(humidityValue);
-  Serial.println("% rH");
+  Serial.println(" % rH");
 
-  Serial.println("Current Data Refresh Rate: Once every" +String(dataRefreshRateSec) + "Sec");
-  Serial.println("Current Reminder Interval: Once every" +String(reminderIntervalMin) + "Min");
-
-  
+  Serial.println("Current ToF Offset: " + String(tof_offset) + " mm");
+  Serial.println("Current Min Water Balance Threshold: " + String(waterBalanceThreshold) + " ml");
+  Serial.println("Current Max Temperature Threshold: " + String(temperatureThreshold) + " °C");
+  Serial.println("Current Max Humidty Threshold: " + String(humidityThreshold) + " % rH");
+  Serial.println("Current Reminder Interval: Once every " + String(reminderIntervalMin) + " Min");
+  Serial.println("Current Data Refresh Rate: Once every " + String(dataRefreshRateSec) + " Sec");
 
   Serial.println("");
 }
@@ -261,6 +303,8 @@ void remindToDrink() {
 }
 
 void setup() {
+  loadConfig();  // Load configuration from NVS
+
   Serial.begin(115200);
 
   Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
@@ -269,21 +313,19 @@ void setup() {
 
   if (!lox.begin()) {
     Serial.println(F("Failed to initialize VL53L0X sensor!"));
-    while (true)
-      ;
+    while (true);
   }
 
   if (!mpu.begin()) {
     Serial.println(F("Failed to initialize MPU6050 sensor!"));
-    while (true)
-      ;
+    while (true);
   }
 
   if (!aht.begin()) {
     Serial.println(F("Failed to initialize AHT20 sensor!"));
-    while (true)
-      ;
+    while (true);
   }
+
 }
 
 void loop() {
